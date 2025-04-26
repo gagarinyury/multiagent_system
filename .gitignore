@@ -1,0 +1,46 @@
+# Виртуальное окружение
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Конфиденциальные данные
+.env
+*.pem
+*.key
+.secrets/
+
+# База данных
+data/*.sqlite
+data/*.db
+
+# Логи
+logs/
+*.log
+
+# Среда разработки
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# Кэш
+.cache/
+__pycache__/
+
+# Временные файлы
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Дистрибутивы
+dist/
+build/
+*.egg-info/
