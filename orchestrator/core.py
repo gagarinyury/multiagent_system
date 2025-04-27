@@ -31,6 +31,14 @@ class Orchestrator:
             "per_model": {},
             "per_agent": {}
         }
+        self.agent_models = {}
+        self.agent_providers = {}
+        self.current_status = {
+            "agent": None,
+            "model": None,
+            "provider": None,
+            "progress": 0
+        }
         self._initialize_agents()
     
     def _initialize_agents(self):
@@ -52,6 +60,67 @@ class Orchestrator:
             for agent in self.agents.values():
                 agent.set_provider(default_provider)
     
+    def set_agent_models(self, agent_models):
+        """
+        Установка моделей для агентов
+        
+        Args:
+            agent_models: Словарь вида {agent_name: model_name}
+        """
+        self.agent_models = agent_models
+    
+    def set_agent_provider(self, agent_name, provider_name):
+        """
+        Установка провайдера для конкретного агента
+        
+        Args:
+            agent_name: Имя агента
+            provider_name: Имя провайдера
+        """
+        if provider_name in self.providers and agent_name in self.agents:
+            self.agent_providers[agent_name] = provider_name
+            self.agents[agent_name].set_provider(self.providers[provider_name])
+    
+    def get_agent_model(self, agent_name):
+        """
+        Получение модели агента
+        
+        Args:
+            agent_name: Имя агента
+        
+        Returns:
+            str or None: Название модели или None
+        """
+        return self.agent_models.get(agent_name)
+    
+    def update_status(self, agent_name=None, model=None, provider=None, progress=None):
+        """
+        Обновление текущего статуса выполнения
+        
+        Args:
+            agent_name: Имя агента
+            model: Название модели
+            provider: Имя провайдера
+            progress: Прогресс выполнения (0-100)
+        """
+        if agent_name is not None:
+            self.current_status["agent"] = agent_name
+        if model is not None:
+            self.current_status["model"] = model
+        if provider is not None:
+            self.current_status["provider"] = provider
+        if progress is not None:
+            self.current_status["progress"] = progress
+    
+    def get_current_status(self):
+        """
+        Получение текущего статуса
+        
+        Returns:
+            dict: Текущий статус
+        """
+        return self.current_status
+    
     def set_provider_key(self, provider_name, api_key):
         """
         Установка API ключа для провайдера
@@ -66,9 +135,10 @@ class Orchestrator:
         if provider_name in self.providers:
             self.providers[provider_name].set_api_key(api_key)
             
-            # Обновляем провайдера у агентов, если он был обновлен
-            for agent in self.agents.values():
-                agent.set_provider(self.providers[provider_name])
+            # Обновляем провайдера у агентов, которые используют этот провайдер
+            for agent_name, p_name in self.agent_providers.items():
+                if p_name == provider_name and agent_name in self.agents:
+                    self.agents[agent_name].set_provider(self.providers[provider_name])
             
             return True
         return False
@@ -167,6 +237,8 @@ class Orchestrator:
         Returns:
             dict: Результаты работы агентов
         """
+        self.update_status(progress=0)
+        
         # Добавление сообщения пользователя в историю
         self.messages.append({"role": "user", "content": user_input})
         
@@ -187,19 +259,35 @@ class Orchestrator:
         results = {}
         current_input = user_input
         
-        # Последовательное выполнение агентов
-        for agent_name in active_agents:
+        total_agents = len(active_agents)
+        for idx, agent_name in enumerate(active_agents):
             if agent_name in self.agents:
                 agent = self.agents[agent_name]
+                
+                # Выбор провайдера для агента
+                provider_name = self.agent_providers.get(agent_name)
+                provider = self.providers.get(provider_name) if provider_name else None
+                
+                if provider:
+                    agent.set_provider(provider)
+                    model_name = self.agent_models.get(agent_name)
+                    if model_name and hasattr(provider, 'set_model'):
+                        provider.set_model(model_name)
+                    else:
+                        model_name = getattr(provider, 'model', None)
+                else:
+                    model_name = None
+                
+                self.update_status(agent_name, model_name, provider_name, int((idx / total_agents) * 100))
                 
                 # Замер времени выполнения
                 start_time = time.time()
                 
                 # Проверка настройки провайдера
                 if not agent.provider or not agent.provider.is_configured():
-                    for provider in self.providers.values():
-                        if provider.is_configured():
-                            agent.set_provider(provider)
+                    for prov in self.providers.values():
+                        if prov.is_configured():
+                            agent.set_provider(prov)
                             break
                 
                 # Выполнение агента
@@ -229,6 +317,8 @@ class Orchestrator:
                         "elapsed_time": 0,
                         "tokens": 0
                     }
+        
+        self.update_status(progress=100)
         
         # Объединение результатов всех агентов в один ответ
         final_result = self._combine_results(results)

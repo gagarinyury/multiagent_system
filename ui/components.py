@@ -2,11 +2,45 @@
 Компоненты пользовательского интерфейса для приложения Streamlit
 """
 
+
 import streamlit as st
 import datetime
 import time
 import pandas as pd
 import plotly.express as px
+
+
+# --- Новый рендер-селектор модели агента ---
+def render_agent_model_selector(agent_name, available_models, default_model):
+    """
+    Отображает селектор модели для конкретного агента
+    
+    Args:
+        agent_name: Имя агента
+        available_models: Словарь доступных моделей {id: описание}
+        default_model: Модель по умолчанию
+        
+    Returns:
+        str: ID выбранной модели
+    """
+    agent_models = st.session_state.get("agent_models", {})
+    current_model = agent_models.get(agent_name, default_model)
+    
+    key = f"model_selector_{agent_name}"
+    
+    selected_model = st.selectbox(
+        f"Модель для {agent_name}:",
+        options=list(available_models.keys()),
+        format_func=lambda x: available_models.get(x, x),
+        index=list(available_models.keys()).index(current_model) if current_model in available_models else 0,
+        key=key
+    )
+    
+    if "agent_models" not in st.session_state:
+        st.session_state.agent_models = {}
+    st.session_state.agent_models[agent_name] = selected_model
+    
+    return selected_model
 
 def render_sidebar(orchestrator=None):
     """
@@ -47,10 +81,8 @@ def render_sidebar(orchestrator=None):
                 "Documenter": "📚 Документатор - пишет документацию"
             }
             
-            # Получение текущих настроек агентов
             active_agents = st.session_state.get("active_agents", {})
             
-            # Отображение чекбоксов для выбора агентов
             for agent_key, agent_desc in agents.items():
                 active_agents[agent_key] = st.checkbox(
                     agent_desc, 
@@ -58,15 +90,15 @@ def render_sidebar(orchestrator=None):
                     key=f"sidebar_agent_{agent_key}"
                 )
             
-            # Сохранение настроек в session_state
             st.session_state.active_agents = active_agents
             
-            # Обновление оркестратора, если он предоставлен
             if orchestrator:
                 orchestrator.configure_agents(active_agents)
-        
+
         # Настройка моделей
-        with st.expander("🧠 Модели", expanded=False):
+        with st.expander("🧠 Модели", expanded=True):
+            st.subheader("Общие настройки моделей")
+            
             claude_models = {
                 "claude-3-opus-20240229": "Claude 3 Opus (мощная, медленная)",
                 "claude-3-7-sonnet-20250219": "Claude 3 Sonnet (сбалансированная)",
@@ -80,42 +112,78 @@ def render_sidebar(orchestrator=None):
                 "gpt-3.5-turbo": "GPT-3.5 Turbo (быстрая, экономичная)"
             }
             
-            # Получение текущих настроек моделей
             models = st.session_state.get("models", {
                 "claude": "claude-3-7-sonnet-20250219", 
                 "gpt": "gpt-4-turbo-preview"
             })
             
-            st.write("Модель Claude:")
-            selected_claude = st.selectbox(
-                "Выберите модель Claude:",
-                options=list(claude_models.keys()),
-                format_func=lambda x: claude_models.get(x, x),
-                index=list(claude_models.keys()).index(
-                    models.get("claude", "claude-3-7-sonnet-20250219")
-                ) if models.get("claude", "claude-3-7-sonnet-20250219") in claude_models else 1
-            )
+            st.write("**Модели по умолчанию:**")
+            col1, col2 = st.columns(2)
             
-            st.write("Модель GPT:")
-            selected_gpt = st.selectbox(
-                "Выберите модель GPT:",
-                options=list(gpt_models.keys()),
-                format_func=lambda x: gpt_models.get(x, x),
-                index=list(gpt_models.keys()).index(models.get("gpt", "gpt-4-turbo-preview")) if models.get("gpt") in gpt_models else 0
-            )
+            with col1:
+                selected_claude = st.selectbox(
+                    "Claude:",
+                    options=list(claude_models.keys()),
+                    format_func=lambda x: claude_models.get(x, x),
+                    index=list(claude_models.keys()).index(
+                        models.get("claude", "claude-3-7-sonnet-20250219")
+                    ) if models.get("claude", "claude-3-7-sonnet-20250219") in claude_models else 1
+                )
             
-            # Сохранение настроек в session_state
+            with col2:
+                selected_gpt = st.selectbox(
+                    "GPT:",
+                    options=list(gpt_models.keys()),
+                    format_func=lambda x: gpt_models.get(x, x),
+                    index=list(gpt_models.keys()).index(models.get("gpt", "gpt-4-turbo-preview")) if models.get("gpt") in gpt_models else 0
+                )
+            
             st.session_state.models = {
                 "claude": selected_claude,
                 "gpt": selected_gpt
             }
             
-            # Обновление моделей в оркестраторе
-            if orchestrator and "providers" in st.session_state:
-                providers = st.session_state.providers
-                for provider_name, model_name in st.session_state.models.items():
-                    if provider_name in providers:
-                        providers[provider_name].set_model(model_name)
+            st.subheader("Настройки по агентам")
+            st.write("Выберите модели для каждого агента:")
+            
+            if "agent_models" not in st.session_state:
+                st.session_state.agent_models = {}
+            
+            active_agents = st.session_state.get("active_agents", {})
+            active_agent_names = [name for name, active in active_agents.items() if active]
+            
+            for agent_name in active_agent_names:
+                st.write(f"**{agent_name}**")
+                
+                provider_key = f"provider_{agent_name}"
+                provider_options = {"claude": "Claude", "gpt": "GPT"}
+                default_provider = st.session_state.get(provider_key, "claude")
+                
+                provider = st.radio(
+                    f"Провайдер для {agent_name}:",
+                    options=list(provider_options.keys()),
+                    format_func=lambda x: provider_options.get(x, x),
+                    index=list(provider_options.keys()).index(default_provider) if default_provider in provider_options else 0,
+                    key=provider_key,
+                    horizontal=True
+                )
+                
+                st.session_state.setdefault(provider_key, provider)
+                
+                available_models = claude_models if provider == "claude" else gpt_models
+                default_model = models.get(provider)
+                
+                render_agent_model_selector(agent_name, available_models, default_model)
+                
+                st.divider()
+            
+            if orchestrator and "agent_models" in st.session_state:
+                orchestrator.set_agent_models(st.session_state.agent_models)
+                
+                for agent_name in active_agent_names:
+                    provider_key = f"provider_{agent_name}"
+                    if provider_key in st.session_state:
+                        orchestrator.set_agent_provider(agent_name, st.session_state[provider_key])
         
         # Настройка токенов
         with st.expander("💰 Токены и стоимость", expanded=False):
@@ -247,16 +315,13 @@ def render_agent_workflow(active_agents):
             unsafe_allow_html=True
         )
 
-def render_agent_output(agent_name, output, elapsed_time=None):
+
+
+
+def render_agent_output(agent_name, output, elapsed_time=None, model=None, provider=None):
     """
-    Отрисовка вывода от агента
-    
-    Args:
-        agent_name: Имя агента
-        output: Текст вывода
-        elapsed_time: Время выполнения в секундах (опционально)
+    Новая версия: вывод агента с инфо о модели/провайдере и аккуратной обработкой код-блоков.
     """
-    # Иконки агентов
     icons = {
         "Planner": "📝",
         "Architect": "🏗️",
@@ -265,42 +330,47 @@ def render_agent_output(agent_name, output, elapsed_time=None):
         "Tester": "🧪",
         "Documenter": "📚"
     }
-    
     icon = icons.get(agent_name, "🤖")
-    
-    with st.expander(f"{icon} {agent_name}" + (f" ({elapsed_time:.2f} сек)" if elapsed_time else ""), expanded=True):
-        st.markdown(output)
-        
-        # Если это код от Coder, добавляем кнопку для копирования
-        if agent_name == "Coder" and "```" in output:
+    # Сборка заголовка
+    title = f"{icon} {agent_name}"
+    details = []
+    if elapsed_time is not None:
+        details.append(f"⏱ {elapsed_time:.2f} сек")
+    if model:
+        details.append(f"🧠 Модель: `{model}`")
+    if provider:
+        details.append(f"🔌 Провайдер: `{provider}`")
+    if details:
+        title += " — " + ", ".join(details)
+    with st.expander(title, expanded=True):
+        # Информация о модели/провайдере
+        if model or provider:
+            infostr = ""
+            if model:
+                infostr += f"**Модель:** `{model}`"
+            if provider:
+                infostr += f" _(провайдер: `{provider}`)_"
+            if infostr:
+                st.markdown(infostr)
+        # Основной вывод
+        if agent_name == "Coder":
+            # Аккуратно разбираем код-блоки, чтобы markdown не ломал формат
+            import re
+            code_pattern = re.compile(r"```([a-zA-Z0-9]*)\n(.*?)```", re.DOTALL)
+            last_end = 0
             code_blocks = []
-            in_code_block = False
-            current_block = []
-            
-            for line in output.split("\n"):
-                if line.startswith("```"):
-                    if in_code_block:
-                        # Конец блока кода
-                        in_code_block = False
-                        code_blocks.append("\n".join(current_block))
-                        current_block = []
-                    else:
-                        # Начало блока кода
-                        in_code_block = True
-                elif in_code_block:
-                    current_block.append(line)
-            
-            # Если есть блоки кода, добавляем кнопки для их копирования
-            if code_blocks:
-                for i, code in enumerate(code_blocks):
-                    # Убираем идентификатор языка из первой строки, если он есть
-                    if code.strip() and "\n" in code:
-                        first_line, rest = code.split("\n", 1)
-                        if first_line.strip() in ["python", "javascript", "html", "css", "java"]:
-                            code = rest
-                    
-                    st.code(code, line_numbers=True)
-                    st.button(f"Копировать блок кода {i+1}", key=f"copy_button_{agent_name}_{i}")
+            for m in code_pattern.finditer(output):
+                start, end = m.span()
+                lang = m.group(1)
+                code = m.group(2)
+                if start > last_end:
+                    st.markdown(output[last_end:start])
+                st.code(code, language=lang if lang else None, line_numbers=True)
+                last_end = end
+            if last_end < len(output):
+                st.markdown(output[last_end:])
+        else:
+            st.markdown(output)
 
 def render_processing_animation():
     """
@@ -677,3 +747,42 @@ def render_settings_form(orchestrator, on_save=None):
             
             if on_save:
                 on_save()
+# --- Новый компонент: прогресс-бар по ходу выполнения агентов ---
+def render_agent_workflow_progress(orchestrator):
+    """
+    Отрисовка прогресса выполнения агентов через orchestrator.
+    Args:
+        orchestrator: объект-оркестратор, у которого есть метод get_agent_statuses()
+    """
+    import streamlit as st
+    from datetime import timedelta
+    agent_statuses = orchestrator.get_agent_statuses() if orchestrator else []
+    if not agent_statuses:
+        st.info("Прогресс недоступен.")
+        return
+    icons = {
+        "Planner": "📝",
+        "Architect": "🏗️",
+        "Coder": "💻",
+        "Reviewer": "🔍",
+        "Tester": "🧪",
+        "Documenter": "📚"
+    }
+    status_icons = {
+        "pending": "⏳",
+        "running": "🔄",
+        "done": "✅",
+        "error": "❌"
+    }
+    cols = st.columns(len(agent_statuses))
+    for i, agent in enumerate(agent_statuses):
+        name = agent.get("name", f"Агент {i+1}")
+        status = agent.get("status", "pending")
+        elapsed = agent.get("elapsed_time")
+        icon = icons.get(name, "🤖")
+        status_icon = status_icons.get(status, "⏳")
+        with cols[i]:
+            st.markdown(f"**{icon} {name}**")
+            st.markdown(f"{status_icon} {status.capitalize()}")
+            if elapsed is not None:
+                st.caption(f"⏱ {elapsed:.2f} сек")

@@ -1,14 +1,12 @@
+# Файл: app.py
+# Полное обновление основного файла приложения с интеграцией новых компонентов
+
 import sys
 import os
 # 👇 Добавляем сюда
 os.environ["DEFAULT_CLAUDE_MODEL"] = "claude-3-7-sonnet-20250219"
 # ДОБАВЛЯЕМ путь проекта в sys.path:
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-print(">>>> sys.path >>>>")
-for p in sys.path:
-    print(p)
-print("<<<< sys.path <<<<")
 
 import time
 import streamlit as st
@@ -30,7 +28,7 @@ from utils.logger import Logger
 from utils.token_counter import TokenCounter
 from ui.components import (
     render_sidebar, render_chat_history, 
-    render_agent_workflow, render_agent_output
+    render_agent_workflow_progress, render_agent_output  # Обновленные импорты
 )
 
 # Загрузка переменных окружения
@@ -121,6 +119,9 @@ if "initialized" not in st.session_state:
         "gpt": os.getenv("DEFAULT_GPT_MODEL", "gpt-4-turbo")
     }
     
+    # Инициализация моделей для каждого агента
+    st.session_state.agent_models = {}
+    
     # Установка моделей для провайдеров
     for provider_name, model_name in st.session_state.models.items():
         if provider_name in providers:
@@ -149,10 +150,13 @@ with st.sidebar:
         for provider_name, model_name in st.session_state.models.items():
             if provider_name in providers:
                 providers[provider_name].set_model(model_name)
+    
+    # Обновление моделей для каждого агента
+    if "agent_models" in st.session_state:
+        orchestrator.set_agent_models(st.session_state.agent_models)
 
-# Отображение потока работы агентов
-if "active_agents" in st.session_state:
-    render_agent_workflow(st.session_state.active_agents)
+# Отображение потока работы агентов с индикатором прогресса
+render_agent_workflow_progress(orchestrator)
 
 # Чат-интерфейс для взаимодействия с системой
 st.subheader("💬 Диалог с системой")
@@ -176,6 +180,14 @@ selected_workflow = st.selectbox(
     options=list(workflow_options.keys()),
     format_func=lambda x: workflow_options.get(x, x)
 )
+
+# Информация о выбранном рабочем процессе
+if selected_workflow:
+    workflow_info = workflow_manager.get_workflow_info(selected_workflow)
+    st.info(f"**{workflow_info.get('name', '')}**: {workflow_info.get('description', '')}")
+
+# Создаем контейнер для отображения прогресса, который будем обновлять
+progress_container = st.empty()
 
 # Отправка запроса
 if st.button("Отправить запрос"):
@@ -206,8 +218,35 @@ if st.button("Отправить запрос"):
             else:
                 # Выполнение выбранного рабочего процесса
                 start_time = time.time()
+                
+                # Обновляем поток работы агентов в отдельном потоке
+                import threading
+                
+                def update_progress():
+                    """Функция для обновления прогресса в отдельном потоке"""
+                    while True:
+                        # Получаем текущий статус
+                        current_status = orchestrator.get_current_status()
+                        if current_status["progress"] >= 100:
+                            break
+                            
+                        # Отображаем прогресс в контейнере
+                        with progress_container:
+                            render_agent_workflow_progress(orchestrator)
+                            
+                        time.sleep(0.5)  # Обновляем каждые 0.5 секунд
+                
+                # Запускаем поток обновления прогресса
+                progress_thread = threading.Thread(target=update_progress)
+                progress_thread.daemon = True  # Daemon-поток завершится, когда основной поток завершится
+                progress_thread.start()
+                
+                # Выполняем рабочий процесс
                 results = workflow_manager.execute_workflow(selected_workflow, user_input)
                 total_time = time.time() - start_time
+                
+                # Очищаем контейнер прогресса
+                progress_container.empty()
                 
                 # Отображение результатов для каждого агента
                 st.subheader("🔍 Результаты работы агентов")
@@ -216,7 +255,9 @@ if st.button("Отправить запрос"):
                         render_agent_output(
                             agent_name, 
                             agent_result["result"], 
-                            agent_result.get("elapsed_time")
+                            agent_result.get("elapsed_time"),
+                            agent_result.get("model"),
+                            agent_result.get("provider")
                         )
                 
                 # Формирование итогового ответа
@@ -257,6 +298,22 @@ with st.expander("📊 Информация о системе"):
             st.subheader("Использование по агентам")
             for agent, tokens in token_usage["per_agent"].items():
                 st.write(f"**{agent}:** {tokens} токенов")
+        
+        # Отображение использования по моделям
+        if "per_model" in token_usage and token_usage["per_model"]:
+            st.subheader("Использование по моделям")
+            model_data = []
+            for model, usage in token_usage["per_model"].items():
+                input_tokens = usage.get("input", 0)
+                output_tokens = usage.get("output", 0)
+                model_data.append({
+                    "Модель": model,
+                    "Входные токены": input_tokens,
+                    "Выходные токены": output_tokens,
+                    "Всего": input_tokens + output_tokens
+                })
+            
+            st.dataframe(model_data)
     
     # Информация о сервере
     try:
