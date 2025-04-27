@@ -54,27 +54,27 @@ class AnthropicProvider(BaseProvider):
         if cache_key in self.cache:
             return self.cache[cache_key]
         
-        # В реальной реализации здесь будет запрос к API
         try:
-            # Заглушка для демонстрации (в реальном коде должен быть запрос к API)
-            # В проде примерно так:
-            # headers = {
-            #     "Content-Type": "application/json",
-            #     "x-api-key": self.api_key,
-            #     "anthropic-version": "2023-06-01"
-            # }
-            # payload = {
-            #     "model": self.model,
-            #     "messages": [{"role": "user", "content": prompt}],
-            #     "max_tokens": max_tokens,
-            #     "temperature": temperature
-            # }
-            # response = requests.post(self.api_url, headers=headers, json=payload)
-            # response_data = response.json()
-            # result = response_data["content"][0]["text"]
+            headers = {
+                "Content-Type": "application/json",
+                "x-api-key": self.api_key,
+                "anthropic-version": "2023-06-01"
+            }
             
-            # Заглушка для демонстрации
-            result = f"[Claude] Ответ на запрос: {prompt[:50]}..."
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+                "temperature": temperature
+            }
+            
+            response = requests.post(self.api_url, headers=headers, json=payload)
+            
+            if response.status_code != 200:
+                return f"[Error] API вернул ошибку: {response.status_code} - {response.text}"
+            
+            response_data = response.json()
+            result = response_data["content"][0]["text"]
             
             # Сохранение в кэш
             self.cache[cache_key] = result
