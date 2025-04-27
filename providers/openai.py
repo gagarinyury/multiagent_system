@@ -5,92 +5,137 @@
 import os
 import requests
 import json
-from .base_provider import BaseProvider
+from .base_provider import BaseProvider # Убеждаемся, что импортируем базовый класс
+# Для более точного подсчета токенов OpenAI использует библиотеку tiktoken
+# Если она установлена в окружении, можно ее импортировать и использовать.
+# try:
+# import tiktoken
+# except ImportError:
+# tiktoken = None
+
 
 class OpenAIProvider(BaseProvider):
     """
     Провайдер для работы с OpenAI GPT API
     """
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, **kwargs):
         """
         Инициализация провайдера OpenAI
-        
+
         Args:
             api_key: API ключ OpenAI (по умолчанию берется из переменных окружения)
+            **kwargs: Дополнительные аргументы для базового класса (например, max_retries)
         """
-        super().__init__(api_key or os.getenv("OPENAI_API_KEY"))
+        # Передаем api_key и другие параметры в конструктор базового класса
+        super().__init__(api_key or os.getenv("OPENAI_API_KEY"), **kwargs)
         self.api_url = "https://api.openai.com/v1/chat/completions"
-        self.model = "gpt-4-turbo-preview"  # Модель по умолчанию
-    
+        # Берем модель из .env или используем по умолчанию OpenAI-специфичную модель
+        self.model = os.getenv("DEFAULT_GPT_MODEL", "gpt-4-turbo-preview")
+        # self.encoding = tiktoken.encoding_for_model(self.model) if tiktoken else None
+
+
     def set_model(self, model):
         """
         Установка модели GPT
-        
+
         Args:
             model: Название модели GPT (например, gpt-4-turbo)
         """
         self.model = model
-    
-    def complete(self, prompt, temperature=0.7, max_tokens=1000):
+        # if tiktoken:
+        # try:
+        # self.encoding = tiktoken.encoding_for_model(self.model)
+        # except KeyError:
+        # self.encoding = None # Неизвестная модель
+
+
+    def _make_api_request(self, prompt, temperature, max_tokens):
         """
-        Выполнение запроса к GPT API
-        
-        Args:
-            prompt: Текст промпта
-            temperature: Температура генерации (0.0-1.0)
-            max_tokens: Максимальное количество токенов в ответе
-            
-        Returns:
-            str: Ответ модели
-            
-        Raises:
-            Exception: Если возникла ошибка при выполнении запроса
+        Внутренний метод для выполнения HTTP запроса к OpenAI API.
+        Реализует специфику запроса к GPT.
         """
         if not self.is_configured():
-            return "[Error] API ключ OpenAI не настроен"
-        
-        # Проверка кэша
-        cache_key = f"{prompt}_{temperature}_{max_tokens}_{self.model}"
-        if cache_key in self.cache:
-            return self.cache[cache_key]
-        
+            # Этот случай должен быть обработан в complete базового класса
+            raise ConnectionRefusedError("API ключ OpenAI не настроен")
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": temperature
+            # TODO: Добавить другие параметры API OpenAI при необходимости
+        }
+
+        # Выполняем запрос. Исключения requests.exceptions.RequestException
+        # будут перехвачены в базовом классе.
+        response = requests.post(self.api_url, headers=headers, json=payload)
+
+        # Возвращаем объект ответа requests для дальнейшей обработки статуса и данных
+        return response
+
+
+    def _process_response(self, response):
+        """
+        Внутренний метод для обработки объекта ответа от requests.
+        Парсит ответ API OpenAI и проверяет на ошибки.
+        """
         try:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
-            }
-            
-            payload = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-                "temperature": temperature
-            }
-            
-            response = requests.post(self.api_url, headers=headers, json=payload)
-            
-            if response.status_code != 200:
-                return f"[Error] API вернул ошибку: {response.status_code} - {response.text}"
-            
+            # Проверка HTTP статуса.
+            response.raise_for_status() # Поднимает HTTPError для плохих ответов (4xx или 5xx)
+
             response_data = response.json()
-            result = response_data["choices"][0]["message"]["content"]
-            
-            # Сохранение в кэш
-            self.cache[cache_key] = result
-            return result
-            
+
+            # Проверка специфических ошибок в теле ответа OpenAI
+            if "error" in response_data:
+                error_type = response_data["error"].get("type", "unknown_error")
+                error_message = response_data["error"].get("message", "Неизвестная ошибка API")
+                # OpenAI часто возвращает ошибки с кодом 200, но с полем 'error' в теле
+                return f"[Error] API вернул ошибку ({response.status_code}, {error_type}): {error_message}"
+
+
+            # Извлечение успешного результата
+            # У OpenAI ответ в choices
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                result = response_data["choices"][0].get("message", {}).get("content", "")
+                # TODO: При необходимости обработать usage statistics: response_data.get("usage")
+                return result
+            else:
+                # Неожиданный формат ответа
+                return f"[Error] API вернул неожиданный формат ответа: {response.text}"
+
+        except requests.exceptions.HTTPError as http_err:
+            # Обработка специфических HTTP ошибок
+            return f"[Error] HTTP ошибка API OpenAI: {http_err}"
+        except json.JSONDecodeError:
+            # Ошибка парсинга JSON
+            return f"[Error] Некорректный JSON ответ от API OpenAI: {response.text}"
         except Exception as e:
-            return f"[Error] Ошибка при обращении к OpenAI API: {str(e)}"
-    
+            # Любые другие неожиданные ошибки при обработке ответа
+            return f"[Error] Ошибка при обработке ответа API OpenAI: {str(e)}"
+
+
     def count_tokens(self, text):
         """
-        Подсчет количества токенов в тексте для GPT
-        
+        Подсчет количества токенов в тексте для GPT.
+        Если установлена библиотека tiktoken, используется она. Иначе - базовая оценка.
+
         Args:
             text: Входной текст
-            
+
         Returns:
-            int: Приблизительное количество токенов
+            int: Количество токенов
         """
-        # GPT использует токены примерно по ~4 символа
-        return len(text) // 4
+        # TODO: Раскомментировать этот блок и установить tiktoken для более точного подсчета
+        # if self.encoding:
+        # try:
+        # return len(self.encoding.encode(text))
+        # except Exception:
+        # pass # В случае ошибки используем базовую оценку
+
+        # Базовая простая оценка, если tiktoken недоступен или произошла ошибка
+        return super().count_tokens(text)
