@@ -75,9 +75,9 @@ def render_settings_page(orchestrator):
     with col1:
         claude_models = {
             "claude-3-opus-20240229": "Claude 3 Opus (мощная, медленная)",
-            "claude-3-sonnet-20240224": "Claude 3 Sonnet (сбалансированная)",
+            "claude-3-7-sonnet-20250219": "Claude 3 Sonnet (сбалансированная)",
             "claude-3-haiku-20240307": "Claude 3 Haiku (быстрая, экономичная)",
-            "claude-3.5-sonnet-20240425": "Claude 3.5 Sonnet (новейшая)"
+            "claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet (новейшая)"
         }
         
         selected_claude = st.selectbox(
@@ -85,8 +85,8 @@ def render_settings_page(orchestrator):
             options=list(claude_models.keys()),
             format_func=lambda x: claude_models.get(x, x),
             index=list(claude_models.keys()).index(
-                os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-sonnet-20240224")
-            ) if os.getenv("DEFAULT_CLAUDE_MODEL") in claude_models else 1
+                os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-opus-20240229")
+            ) if os.getenv("DEFAULT_CLAUDE_MODEL") in claude_models else 0
         )
         
         if st.button("Установить модель Claude"):

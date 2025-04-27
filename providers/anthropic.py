@@ -20,7 +20,7 @@ class AnthropicProvider(BaseProvider):
         """
         super().__init__(api_key or os.getenv("ANTHROPIC_API_KEY"))
         self.api_url = "https://api.anthropic.com/v1/messages"
-        self.model = "claude-3-sonnet-20240224"  # Модель по умолчанию
+        self.model = os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-7-sonnet-20250219")  # Берем из .env или используем по умолчанию
     
     def set_model(self, model):
         """

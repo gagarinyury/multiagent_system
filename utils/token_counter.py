@@ -12,7 +12,7 @@ class TokenCounter:
     MODEL_COSTS = {
         # Claude
         "claude-3-opus-20240229": {"input": 0.015, "output": 0.075},
-        "claude-3-sonnet-20240224": {"input": 0.003, "output": 0.015},
+        "claude-3-7-sonnet-20250219": {"input": 0.003, "output": 0.015},
         "claude-3-haiku-20240307": {"input": 0.0003, "output": 0.0015},
         # OpenAI
         "gpt-4-turbo-preview": {"input": 0.01, "output": 0.03},

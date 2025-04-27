@@ -1,7 +1,7 @@
 import sys
 import os
 # 👇 Добавляем сюда
-os.environ["DEFAULT_CLAUDE_MODEL"] = "claude-3-sonnet-20240224"
+os.environ["DEFAULT_CLAUDE_MODEL"] = "claude-3-7-sonnet-20250219"
 # ДОБАВЛЯЕМ путь проекта в sys.path:
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -35,6 +35,34 @@ from ui.components import (
 
 # Загрузка переменных окружения
 load_dotenv()
+
+# 🔒 Проверка пароля
+SECRET_PASSWORD = os.getenv("STREAMLIT_PASSWORD", "default_password")
+
+def check_password():
+    def password_entered():
+        if st.session_state["password"] == SECRET_PASSWORD:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input(
+            "Введите пароль", type="password", on_change=password_entered, key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input(
+            "Введите пароль", type="password", on_change=password_entered, key="password"
+        )
+        st.error("❌ Неверный пароль")
+        return False
+    else:
+        return True
+
+if not check_password():
+    st.stop()
 
 # Инициализация логгера
 logger = Logger(name="multiagent_system", level=os.getenv("LOG_LEVEL", "INFO"))
@@ -89,7 +117,7 @@ if "initialized" not in st.session_state:
     
     # Настройка моделей по умолчанию
     st.session_state.models = {
-        "claude": os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-sonnet-20240224"),
+        "claude": os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-7-sonnet-20250219"),
         "gpt": os.getenv("DEFAULT_GPT_MODEL", "gpt-4-turbo")
     }
     

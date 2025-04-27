@@ -69,8 +69,9 @@ def render_sidebar(orchestrator=None):
         with st.expander("🧠 Модели", expanded=False):
             claude_models = {
                 "claude-3-opus-20240229": "Claude 3 Opus (мощная, медленная)",
-                "claude-3-sonnet-20240224": "Claude 3 Sonnet (сбалансированная)",
-                "claude-3-haiku-20240307": "Claude 3 Haiku (быстрая, экономичная)"
+                "claude-3-7-sonnet-20250219": "Claude 3 Sonnet (сбалансированная)",
+                "claude-3-haiku-20240307": "Claude 3 Haiku (быстрая, экономичная)",
+                "claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet (новейшая версия)"
             }
             
             gpt_models = {
@@ -81,7 +82,7 @@ def render_sidebar(orchestrator=None):
             
             # Получение текущих настроек моделей
             models = st.session_state.get("models", {
-                "claude": "claude-3-sonnet-20240224", 
+                "claude": "claude-3-7-sonnet-20250219", 
                 "gpt": "gpt-4-turbo-preview"
             })
             
@@ -90,7 +91,9 @@ def render_sidebar(orchestrator=None):
                 "Выберите модель Claude:",
                 options=list(claude_models.keys()),
                 format_func=lambda x: claude_models.get(x, x),
-                index=list(claude_models.keys()).index(models.get("claude", "claude-3-sonnet-20240224")) if models.get("claude") in claude_models else 1
+                index=list(claude_models.keys()).index(
+                    models.get("claude", "claude-3-7-sonnet-20250219")
+                ) if models.get("claude", "claude-3-7-sonnet-20250219") in claude_models else 1
             )
             
             st.write("Модель GPT:")
@@ -602,8 +605,9 @@ def render_settings_form(orchestrator, on_save=None):
         st.subheader("🧠 Модели")
         claude_models = {
             "claude-3-opus-20240229": "Claude 3 Opus (мощная, медленная)",
-            "claude-3-sonnet-20240224": "Claude 3 Sonnet (сбалансированная)",
-            "claude-3-haiku-20240307": "Claude 3 Haiku (быстрая, экономичная)"
+            "claude-3-7-sonnet-20250219": "Claude 3 Sonnet (сбалансированная)",
+            "claude-3-haiku-20240307": "Claude 3 Haiku (быстрая, экономичная)",
+            "claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet (новейшая версия)"
         }
         
         gpt_models = {
@@ -614,7 +618,7 @@ def render_settings_form(orchestrator, on_save=None):
         
         # Получение текущих настроек моделей
         models = st.session_state.get("models", {
-            "claude": "claude-3-sonnet-20240224", 
+            "claude": "claude-3-7-sonnet-20250219", 
             "gpt": "gpt-4-turbo-preview"
         })
         
@@ -622,7 +626,9 @@ def render_settings_form(orchestrator, on_save=None):
             "Модель Claude:",
             options=list(claude_models.keys()),
             format_func=lambda x: claude_models.get(x, x),
-            index=list(claude_models.keys()).index(models.get("claude", "claude-3-sonnet-20240224")) if models.get("claude") in claude_models else 1
+            index=list(claude_models.keys()).index(
+                models.get("claude", "claude-3-7-sonnet-20250219")
+            ) if models.get("claude", "claude-3-7-sonnet-20250219") in claude_models else 1
         )
         
         selected_gpt = st.selectbox(
