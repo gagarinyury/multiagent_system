@@ -1,4 +1,15 @@
+import sys
 import os
+# 👇 Добавляем сюда
+os.environ["DEFAULT_CLAUDE_MODEL"] = "claude-3-sonnet-20240224"
+# ДОБАВЛЯЕМ путь проекта в sys.path:
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+print(">>>> sys.path >>>>")
+for p in sys.path:
+    print(p)
+print("<<<< sys.path <<<<")
+
 import time
 import streamlit as st
 from dotenv import load_dotenv
@@ -78,7 +89,7 @@ if "initialized" not in st.session_state:
     
     # Настройка моделей по умолчанию
     st.session_state.models = {
-        "claude": os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-sonnet-20240229"),
+        "claude": os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-sonnet-20240224"),
         "gpt": os.getenv("DEFAULT_GPT_MODEL", "gpt-4-turbo")
     }
     
