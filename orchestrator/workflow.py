@@ -2,6 +2,10 @@
 Управление рабочими процессами (workflows) мультиагентной системы
 """
 
+import logging
+
+logger = logging.getLogger("multiagent_system")
+
 class WorkflowManager:
     """
     Класс для управления различными рабочими процессами мультиагентной системы
@@ -18,7 +22,8 @@ class WorkflowManager:
             "standard": self.standard_workflow,
             "code_only": self.code_only_workflow,
             "review_only": self.review_only_workflow,
-            "docs_only": self.docs_only_workflow
+            "docs_only": self.docs_only_workflow,
+            "code_to_project": self.code_to_project_workflow  # Новый рабочий процесс
         }
     
     def execute_workflow(self, workflow_name, user_input):
@@ -33,9 +38,12 @@ class WorkflowManager:
             dict: Результаты выполнения процесса
         """
         if workflow_name in self.available_workflows:
+            logger.info(f"Запуск рабочего процесса: {workflow_name}")
             return self.available_workflows[workflow_name](user_input)
         else:
-            return {"error": f"Неизвестный рабочий процесс: {workflow_name}"}
+            error_message = f"Неизвестный рабочий процесс: {workflow_name}"
+            logger.error(error_message)
+            return {"error": error_message}
     
     def standard_workflow(self, user_input):
         """
@@ -57,7 +65,8 @@ class WorkflowManager:
             "Coder": True,
             "Reviewer": True,
             "Tester": True,
-            "Documenter": True
+            "Documenter": True,
+            "ProjectManager": False  # По умолчанию отключен в стандартном процессе
         }
         self.orchestrator.configure_agents(all_agents)
         
@@ -89,7 +98,8 @@ class WorkflowManager:
             "Coder": True,
             "Reviewer": False,
             "Tester": False,
-            "Documenter": False
+            "Documenter": False,
+            "ProjectManager": False
         }
         self.orchestrator.configure_agents(code_agents)
         
@@ -121,7 +131,8 @@ class WorkflowManager:
             "Coder": False,
             "Reviewer": True,
             "Tester": True,
-            "Documenter": False
+            "Documenter": False,
+            "ProjectManager": False
         }
         self.orchestrator.configure_agents(review_agents)
         
@@ -153,7 +164,8 @@ class WorkflowManager:
             "Coder": False,
             "Reviewer": False,
             "Tester": False,
-            "Documenter": True
+            "Documenter": True,
+            "ProjectManager": False
         }
         self.orchestrator.configure_agents(docs_agents)
         
@@ -164,6 +176,94 @@ class WorkflowManager:
         self.orchestrator.configure_agents(original_agents)
         
         return results
+    
+    def code_to_project_workflow(self, user_input):
+        """
+        Рабочий процесс для создания проекта из кода:
+        Planner -> Architect -> Coder -> ProjectManager
+        
+        Args:
+            user_input: Входные данные от пользователя
+            
+        Returns:
+            dict: Результаты выполнения процесса
+        """
+        # Сохраняем текущие настройки агентов
+        original_agents = self.orchestrator.active_agents.copy()
+        
+        # Устанавливаем агенты для создания проекта
+        project_agents = {
+            "Planner": True,
+            "Architect": True,
+            "Coder": True,
+            "Reviewer": False,
+            "Tester": False,
+            "Documenter": False,
+            "ProjectManager": True  # Включаем ProjectManager
+        }
+        self.orchestrator.configure_agents(project_agents)
+        
+        # Проверяем, установлен ли project_manager в оркестраторе
+        if hasattr(self.orchestrator, 'project_manager'):
+            # Если project_manager установлен в оркестраторе, передаем его в агент
+            if "ProjectManager" in self.orchestrator.agents:
+                self.orchestrator.agents["ProjectManager"].project_manager = self.orchestrator.project_manager
+                logger.info("ProjectManager агент настроен с project_manager из оркестратора")
+        
+        # Извлекаем настройки проекта из user_input (если они есть)
+        project_settings = self._extract_project_settings(user_input)
+        
+        # Сохраняем настройки проекта в контексте
+        context = {"project_settings": project_settings}
+        
+        # Выполняем процесс
+        results = self.orchestrator.process_request(user_input)
+        
+        # Восстанавливаем оригинальные настройки
+        self.orchestrator.configure_agents(original_agents)
+        
+        return results
+    
+    def _extract_project_settings(self, user_input):
+        """
+        Извлечение настроек проекта из входных данных пользователя
+        
+        Args:
+            user_input: Текст запроса пользователя
+            
+        Returns:
+            dict: Настройки проекта
+        """
+        # Базовые настройки проекта по умолчанию
+        settings = {
+            "project_name": None,
+            "project_description": "",
+            "create_structure": True
+        }
+        
+        # Извлечение имени проекта
+        project_name_indicators = ["проект:", "project:", "назови проект", "создай проект"]
+        lines = user_input.lower().split('\n')
+        
+        for line in lines:
+            for indicator in project_name_indicators:
+                if indicator in line:
+                    # Пытаемся извлечь имя проекта после индикатора
+                    parts = line.split(indicator, 1)
+                    if len(parts) > 1:
+                        potential_name = parts[1].strip().strip(':"\'')
+                        if potential_name:
+                            # Очищаем имя от недопустимых символов
+                            import re
+                            settings["project_name"] = re.sub(r'[^\w\-]', '_', potential_name)
+                            break
+        
+        # Если имя проекта не найдено, используем имя по умолчанию
+        if not settings["project_name"]:
+            from datetime import datetime
+            settings["project_name"] = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        return settings
     
     def custom_workflow(self, user_input, agent_sequence):
         """
@@ -226,6 +326,11 @@ class WorkflowManager:
                 "name": "Только документация",
                 "description": "Создание документации для существующего кода",
                 "agents": ["Documenter"]
+            },
+            "code_to_project": {
+                "name": "Код в проект",
+                "description": "Создание проекта на сервере: планирование, архитектура, код, создание файлов",
+                "agents": ["Planner", "Architect", "Coder", "ProjectManager"]
             }
         }
         

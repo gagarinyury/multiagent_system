@@ -8,7 +8,7 @@ import logging # Импортируем модуль логирования
 
 from agents import (
  BaseAgent, PlannerAgent, ArchitectAgent, CoderAgent,
- ReviewerAgent, TesterAgent, DocumenterAgent
+ ReviewerAgent, TesterAgent, DocumenterAgent, ProjectManagerAgent
 )
 from utils.token_counter import TokenCounter
 from utils.logger import Logger # Импортируем наш Logger
@@ -60,7 +60,8 @@ class Orchestrator:
    "Coder": CoderAgent(),
    "Reviewer": ReviewerAgent(),
    "Tester": TesterAgent(),
-   "Documenter": DocumenterAgent()
+   "Documenter": DocumenterAgent(),
+   "ProjectManager": ProjectManagerAgent()
   }
 
   # Назначение провайдера по умолчанию для всех агентов
@@ -247,7 +248,7 @@ class Orchestrator:
    list: Список имен активных агентов
   """
   # Определяем стандартный порядок агентов
-  standard_order = ["Planner", "Architect", "Coder", "Reviewer", "Tester", "Documenter"]
+  standard_order = ["Planner", "Architect", "Coder", "Reviewer", "Tester", "Documenter", "ProjectManager"]
 
   # Фильтруем только активных агентов, сохраняя порядок
   active_agents = [agent for agent in standard_order
@@ -393,6 +394,12 @@ class Orchestrator:
     start_time = time.time()
 
     try:
+        # Специальная обработка для ProjectManagerAgent
+        if agent_name == "ProjectManager" and hasattr(self, 'project_manager'):
+            # При наличии доступа к manager, передаем его в агент
+            if not hasattr(agent, 'project_manager') or agent.project_manager is None:
+                agent.project_manager = self.project_manager
+            
         # Выполнение агента
         agent_result = agent.process(current_input, context)
 

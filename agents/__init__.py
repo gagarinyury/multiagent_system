@@ -5,3 +5,4 @@ from .coder import CoderAgent
 from .reviewer import ReviewerAgent
 from .tester import TesterAgent
 from .documenter import DocumenterAgent
+from .project_manager import ProjectManagerAgent

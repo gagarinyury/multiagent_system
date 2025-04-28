@@ -10,7 +10,6 @@ import plotly.express as px
 import re # Импортируем регулярные выражения
 
 # --- Новый рендер-селектор модели агента ---
-# Оставляем его как есть, он не требует доработок в этой фазе
 def render_agent_model_selector(agent_name, available_models, default_model):
     """
     Отображает селектор модели для конкретного агента
@@ -43,8 +42,6 @@ def render_agent_model_selector(agent_name, available_models, default_model):
     return selected_model
 
 # --- Рендер боковой панели ---
-# Оставляем его как есть, он не требует доработок в этой фазе,
-# так как логика сохранения настроек перенесена на страницу настроек.
 def render_sidebar(orchestrator=None):
     """
     Отрисовка боковой панели с настройками
@@ -81,7 +78,8 @@ def render_sidebar(orchestrator=None):
                 "Coder": "💻 Программист",
                 "Reviewer": "🔍 Ревьюер",
                 "Tester": "🧪 Тестировщик",
-                "Documenter": "📚 Документатор"
+                "Documenter": "📚 Документатор",
+                "ProjectManager": "📁 Менеджер проектов"
             }
             agent_descriptions = {
                 "Planner": "анализирует задачу и создает план",
@@ -89,7 +87,8 @@ def render_sidebar(orchestrator=None):
                 "Coder": "пишет код",
                 "Reviewer": "проверяет код на ошибки",
                 "Tester": "создает тесты",
-                "Documenter": "пишет документацию"
+                "Documenter": "пишет документацию",
+                "ProjectManager": "создает файлы проекта на сервере"
             }
 
 
@@ -165,7 +164,6 @@ def render_sidebar(orchestrator=None):
                 pass
 
 # --- Рендер истории чата ---
-# Оставляем как есть
 def render_chat_history(messages):
     """
     Отрисовка истории чата
@@ -190,7 +188,6 @@ def render_chat_history(messages):
 
 
 # --- НОВАЯ РЕАЛИЗАЦИЯ: Рендер потока работы агентов с прогрессом ---
-# Доработан для использования нового статуса из оркестратора
 def render_agent_workflow_progress(orchestrator):
     """
     Отрисовка потока работы агентов с индикатором прогресса и статусом.
@@ -217,7 +214,8 @@ def render_agent_workflow_progress(orchestrator):
         "Coder": "💻",
         "Reviewer": "🔍",
         "Tester": "🧪",
-        "Documenter": "📚"
+        "Documenter": "📚",
+        "ProjectManager": "📁"
     }
     # Цвета и текст статусов
     status_colors = {
@@ -263,7 +261,6 @@ def render_agent_workflow_progress(orchestrator):
 
 
 # --- НОВАЯ РЕАЛИЗАЦИЯ: Рендер вывода агента ---
-# Доработан для более гибкого отображения и учета ошибок
 def render_agent_output(agent_name, output, elapsed_time=None, model=None, provider=None):
     """
     Рендер вывода агента в разворачивающемся блоке.
@@ -275,7 +272,8 @@ def render_agent_output(agent_name, output, elapsed_time=None, model=None, provi
         "Coder": "💻",
         "Reviewer": "🔍",
         "Tester": "🧪",
-        "Documenter": "📚"
+        "Documenter": "📚",
+        "ProjectManager": "📁"
     }
     icon = icons.get(agent_name, "🤖")
 
@@ -335,9 +333,131 @@ def render_agent_output(agent_name, output, elapsed_time=None, model=None, provi
                  st.markdown(output)
 
 
-# --- Остальные компоненты UI (анимация, графики, индикаторы и т.д.) ---
-# Оставляем их как есть, они не требуют доработок в этой фазе.
+# --- Специальный компонент для выбора или создания проекта ---
+def render_project_selector(project_manager, with_creation=True):
+    """
+    Отображает селектор проекта с возможностью создания нового
 
+    Args:
+        project_manager: Экземпляр SecureProjectManager
+        with_creation: Отображать ли форму создания нового проекта
+
+    Returns:
+        str: Название выбранного или созданного проекта
+    """
+    # Получаем список существующих проектов
+    projects = project_manager.list_projects()
+    
+    selected_project = None
+    
+    if projects:
+        st.subheader("Выберите существующий проект:")
+        selected_project = st.selectbox(
+            "Проект:",
+            options=[""] + projects,
+            format_func=lambda x: f"{x}" if x else "Выберите проект..."
+        )
+    
+    # Если включена возможность создания проекта
+    if with_creation:
+        with st.expander("➕ Создать новый проект", expanded=not selected_project):
+            with st.form("create_project_form"):
+                new_project_name = st.text_input("Название проекта:")
+                new_project_description = st.text_area("Описание проекта:")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    create_src = st.checkbox("Создать src/", value=True)
+                with col2:
+                    create_docs = st.checkbox("Создать docs/", value=True)
+                with col3:
+                    create_tests = st.checkbox("Создать tests/", value=True)
+                
+                submit_button = st.form_submit_button("Создать проект")
+                
+                if submit_button and new_project_name:
+                    result = project_manager.create_project(new_project_name)
+                    
+                    if result["success"]:
+                        st.success(result["message"])
+                        
+                        # Создаем README.md с описанием
+                        if new_project_description:
+                            readme_content = f"# {new_project_name}\n\n{new_project_description}\n\nПроект создан с помощью мультиагентной системы.\n"
+                            project_manager.create_file(new_project_name, "README.md", readme_content)
+                        
+                        # Создаем базовую структуру
+                        if create_src:
+                            project_manager.create_file(new_project_name, "src/.gitkeep", "")
+                        if create_docs:
+                            project_manager.create_file(new_project_name, "docs/.gitkeep", "")
+                        if create_tests:
+                            project_manager.create_file(new_project_name, "tests/.gitkeep", "")
+                        
+                        # Устанавливаем новый проект как выбранный
+                        selected_project = new_project_name
+                    else:
+                        st.error(result["message"])
+    
+    return selected_project
+
+
+# --- Компонент для сохранения кода в проект ---
+def render_save_to_project_button(code_blocks, project_manager):
+    """
+    Отображает кнопку и диалог для сохранения кода в проект
+
+    Args:
+        code_blocks: Словарь {имя_файла: содержимое} или текст с кодом
+        project_manager: Экземпляр SecureProjectManager
+
+    Returns:
+        bool: True, если код был сохранен успешно
+    """
+    if st.button("💾 Сохранить в проект"):
+        # Отображаем селектор проекта
+        selected_project = render_project_selector(project_manager)
+        
+        if not selected_project:
+            st.warning("Выберите или создайте проект для сохранения кода.")
+            return False
+        
+        # Извлекаем блоки кода, если передан текст
+        if isinstance(code_blocks, str):
+            from agents.project_manager import ProjectManagerAgent
+            temp_agent = ProjectManagerAgent()
+            extracted_blocks = temp_agent.extract_file_blocks(code_blocks)
+            if extracted_blocks:
+                code_blocks = extracted_blocks
+            else:
+                # Если не удалось извлечь блоки, создаем один файл
+                code_blocks = {"main.py": code_blocks}
+        
+        # Сохраняем каждый файл в проект
+        with st.spinner("Сохранение файлов в проект..."):
+            success_count = 0
+            error_messages = []
+            
+            for file_path, content in code_blocks.items():
+                result = project_manager.create_file(selected_project, file_path, content)
+                if result["success"]:
+                    success_count += 1
+                else:
+                    error_messages.append(f"Ошибка при создании {file_path}: {result['message']}")
+            
+            if success_count > 0:
+                st.success(f"Успешно сохранено {success_count} файлов в проект '{selected_project}'")
+            
+            if error_messages:
+                for error in error_messages:
+                    st.error(error)
+            
+            return success_count > 0 and not error_messages
+    
+    return False
+
+
+# Остальные компоненты UI (анимация, графики, индикаторы и т.д.)
 def render_processing_animation():
     """
     Отрисовка анимации обработки запроса
@@ -383,7 +503,7 @@ def render_token_usage_chart(token_usage):
     else:
         st.info("Нет данных об использовании токенов по агентам")
 
-# Селекторы, индикаторы статуса, загрузчики и т.д. - оставляем как есть
+# Селекторы, индикаторы статуса, загрузчики и т.д.
 def render_model_selector(models, provider_name, on_change=None):
      # ... (код остается прежним)
      pass

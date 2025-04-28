@@ -9,11 +9,12 @@ import threading # Импортируем потоки для обновлени
 # Импортируем доработанные компоненты
 from ui.components import (
     render_sidebar, render_chat_history,
-    render_agent_workflow_progress, render_agent_output # Используем обновленные компоненты
+    render_agent_workflow_progress, render_agent_output,
+    render_save_to_project_button, render_project_selector
 )
 
-# import logging # Можно добавить логирование и сюда при необходимости
-# logger = logging.getLogger("multiagent_system")
+import logging # Добавляем логирование для отладки
+logger = logging.getLogger("multiagent_system")
 
 
 def render_main_page(orchestrator, workflow_manager):
@@ -45,6 +46,7 @@ def render_main_page(orchestrator, workflow_manager):
     workflow_options = {
         "standard": "Стандартный процесс",
         "code_only": "Только код",
+        "code_to_project": "Код в проект", # Добавлен новый рабочий процесс
         "review_only": "Только ревью",
         "docs_only": "Только документация"
     }
@@ -59,6 +61,33 @@ def render_main_page(orchestrator, workflow_manager):
     if selected_workflow:
         workflow_info = workflow_manager.get_workflow_info(selected_workflow)
         st.info(f"**{workflow_info.get('name', '')}**: {workflow_info.get('description', '')}")
+
+    # Опции для процесса создания проекта
+    if selected_workflow == "code_to_project":
+        with st.expander("🔧 Параметры проекта", expanded=True):
+            # Если у оркестратора есть доступ к project_manager
+            if hasattr(orchestrator, 'project_manager'):
+                # Получаем список существующих проектов
+                projects = orchestrator.project_manager.list_projects()
+                
+                project_name = st.text_input("Название проекта:", 
+                                            key="project_name_input",
+                                            help="Если не указано, будет создано автоматически")
+                project_description = st.text_area("Описание проекта:", 
+                                                 key="project_description_input",
+                                                 height=50)
+                
+                # Добавляем в user_input информацию о проекте, если она указана
+                if project_name:
+                    project_info = f"\nПроект: {project_name}"
+                    if project_description:
+                        project_info += f"\nОписание: {project_description}"
+                    
+                    if user_input and not user_input.endswith("\n"):
+                        user_input += "\n"
+                    user_input += project_info
+            else:
+                st.warning("Project Manager не инициализирован. Проекты будут создаваться с автоматическими именами.")
 
     # Создаем пустой контейнер для отображения прогресса выполнения агентов
     # Этот контейнер будет обновляться в отдельном потоке
@@ -108,6 +137,15 @@ def render_main_page(orchestrator, workflow_manager):
                         st.error("Не настроены API ключи. Пожалуйста, перейдите в раздел 'Настройки'.")
 
                 else:
+                    # Предварительная обработка для ProjectManager
+                    if selected_workflow == "code_to_project" and hasattr(orchestrator, 'project_manager'):
+                        # Если у оркестратора есть доступ к project_manager, передаем его в агент
+                        if "ProjectManager" in orchestrator.agents:
+                            orchestrator.agents["ProjectManager"].project_manager = orchestrator.project_manager
+                            logger.info("Project Manager настроен с доступом к менеджеру проектов")
+                        else:
+                            logger.warning("Агент Project Manager не найден в оркестраторе")
+
                     # Выполнение выбранного рабочего процесса
                     start_time = time.time()
 
@@ -161,13 +199,23 @@ def render_main_page(orchestrator, workflow_manager):
             # --- Отображение результатов после выполнения ---
             # Эти результаты теперь берутся из session_state после завершения workflow
             st.subheader("🔍 Результаты работы агентов")
+            
+            # Переменная для хранения кода, если он был сгенерирован
+            generated_code = None
+            
             if st.session_state.current_agent_results:
                 for agent_name, agent_result in st.session_state.current_agent_results.items():
                     # Проверяем, есть ли у агента результат или ошибка для отображения
                     if "result" in agent_result or "error" in agent_result:
+                        result_content = agent_result.get("result", agent_result.get("error", "Нет результата"))
+                        
+                        # Если это Coder, сохраняем результат для возможного сохранения в проект
+                        if agent_name == "Coder":
+                            generated_code = result_content
+                        
                         render_agent_output(
                             agent_name,
-                            agent_result.get("result", agent_result.get("error", "Нет результата")), # Берем result или error
+                            result_content,
                             agent_result.get("elapsed_time"),
                             agent_result.get("model"),
                             agent_result.get("provider")
@@ -177,14 +225,15 @@ def render_main_page(orchestrator, workflow_manager):
                          # В текущей реализации render_agent_output уже обрабатывает пустой вывод
                          pass # Ничего не делаем, render_agent_output покажет "Нет результата" или пустой блок
 
-
-            # Формирование итогового ответа для отображения в чате (это уже делает оркестратор)
-            # Итоговый ответ уже добавлен в st.session_state.messages оркестратором
+                # Если код был сгенерирован и у нас есть проект-менеджер, предлагаем сохранить в проект
+                if generated_code and hasattr(orchestrator, 'project_manager') and selected_workflow != "code_to_project":
+                    st.subheader("💾 Сохранение кода в проект")
+                    st.write("Вы можете сохранить сгенерированный код в существующий проект или создать новый.")
+                    render_save_to_project_button(generated_code, orchestrator.project_manager)
 
 
             # Отображение статистики выполнения
             st.info(f"Запрос обработан за {total_time:.2f} секунд")
-            # TODO: Возможно, добавить здесь отображение суммарных токенов и стоимости за этот запрос
 
 
     # Информация о системе в раскрывающемся блоке
@@ -207,9 +256,16 @@ def render_main_page(orchestrator, workflow_manager):
             if "per_agent" in token_usage and token_usage["per_agent"]:
                 st.subheader("Использование по агентам")
                 # Используем dataframe для более наглядного отображения
-                agent_usage_df = pd.DataFrame(list(token_usage["per_agent"].items()), columns=['Агент', 'Токены'])
-                st.dataframe(agent_usage_df, use_container_width=True)
-
+                agent_usage_data = []
+                for agent, tokens in token_usage["per_agent"].items():
+                    agent_usage_data.append({
+                        "Агент": agent,
+                        "Токены": tokens
+                    })
+                if agent_usage_data:
+                    import pandas as pd
+                    agent_usage_df = pd.DataFrame(agent_usage_data)
+                    st.dataframe(agent_usage_df, use_container_width=True)
 
             if "per_model" in token_usage and token_usage["per_model"]:
                 st.subheader("Использование по моделям")
@@ -217,6 +273,7 @@ def render_main_page(orchestrator, workflow_manager):
                 for model, usage in token_usage["per_model"].items():
                     input_tokens = usage.get("input", 0)
                     output_tokens = usage.get("output", 0)
+                    from utils.token_counter import TokenCounter
                     model_data.append({
                         "Модель": model,
                         "Входные токены": input_tokens,
@@ -224,8 +281,10 @@ def render_main_page(orchestrator, workflow_manager):
                         "Всего": input_tokens + output_tokens,
                         "Стоимость ($)": TokenCounter.estimate_cost(model, input_tokens, output_tokens) # Пересчитываем стоимость здесь для детального отображения
                     })
-                model_usage_df = pd.DataFrame(model_data)
-                st.dataframe(model_usage_df, use_container_width=True)
+                if model_data:
+                    import pandas as pd
+                    model_usage_df = pd.DataFrame(model_data)
+                    st.dataframe(model_usage_df, use_container_width=True)
 
 
         # Информация о сервере
@@ -240,7 +299,6 @@ def render_main_page(orchestrator, workflow_manager):
 
 # Этот блок используется только при прямом запуске страницы,
 # в многостраничном приложении маршрутизация происходит в app_router.py
-# if __name__ == "__main__":
-#     # Для возможности запуска страницы напрямую
-#     st.info("Эта страница должна запускаться через основное приложение.")
-#     # TODO: Добавить здесь минимальную инициализацию для тестирования страницы напрямую
+if __name__ == "__main__":
+    # Для возможности запуска страницы напрямую
+    st.info("Эта страница должна запускаться через основное приложение.")

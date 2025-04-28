@@ -41,7 +41,7 @@ class BaseProvider:
         """
         return self.api_key is not None and len(self.api_key) > 0
 
-    def complete(self, prompt, temperature=0.7, max_tokens=1000):
+    def complete(self, prompt, temperature=0.7, max_tokens=8000):
         """
         Выполнение запроса к LLM с повторными попытками
 

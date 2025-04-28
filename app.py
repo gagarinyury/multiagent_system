@@ -22,7 +22,7 @@ from providers.anthropic import AnthropicProvider
 from providers.openai import OpenAIProvider
 from agents import (
     PlannerAgent, ArchitectAgent, CoderAgent, 
-    ReviewerAgent, TesterAgent, DocumenterAgent
+    ReviewerAgent, TesterAgent, DocumenterAgent, ProjectManagerAgent
 )
 from utils.logger import Logger
 from utils.token_counter import TokenCounter
@@ -30,6 +30,9 @@ from ui.components import (
     render_sidebar, render_chat_history, 
     render_agent_workflow_progress, render_agent_output  # Обновленные импорты
 )
+
+# Импорт для ProjectManager
+from ui.pages.project_manager import SecureProjectManager
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -86,8 +89,15 @@ if "initialized" not in st.session_state:
         "gpt": OpenAIProvider(os.getenv("OPENAI_API_KEY", ""))
     }
     
+    # Инициализация проект-менеджера
+    projects_root = os.getenv("PROJECTS_ROOT", "projects")
+    project_manager = SecureProjectManager(projects_root=projects_root)
+    logger.info(f"Инициализирован SecureProjectManager с корневой директорией: {projects_root}")
+    
     # Инициализация оркестратора
     orchestrator = Orchestrator(context_storage, providers)
+    # Добавляем проект-менеджер в оркестратор
+    orchestrator.project_manager = project_manager
     
     # Инициализация менеджера рабочих процессов
     workflow_manager = WorkflowManager(orchestrator)
@@ -98,6 +108,7 @@ if "initialized" not in st.session_state:
     st.session_state.providers = providers
     st.session_state.orchestrator = orchestrator
     st.session_state.workflow_manager = workflow_manager
+    st.session_state.project_manager = project_manager  # Сохраняем проект-менеджер в состоянии сессии
     st.session_state.messages = []
     st.session_state.initialized = True
     
@@ -108,7 +119,8 @@ if "initialized" not in st.session_state:
         "Coder": True,
         "Reviewer": True,
         "Tester": True,
-        "Documenter": True
+        "Documenter": True,
+        "ProjectManager": True  # Включаем ProjectManagerAgent по умолчанию
     }
     st.session_state.active_agents = default_active_agents
     orchestrator.configure_agents(default_active_agents)
@@ -122,6 +134,9 @@ if "initialized" not in st.session_state:
     # Инициализация моделей для каждого агента
     st.session_state.agent_models = {}
     
+    # Инициализация провайдеров для каждого агента
+    st.session_state.agent_providers = {}
+    
     # Установка моделей для провайдеров
     for provider_name, model_name in st.session_state.models.items():
         if provider_name in providers:
@@ -132,6 +147,7 @@ if "initialized" not in st.session_state:
 # Получение компонентов из состояния сессии
 orchestrator = st.session_state.orchestrator
 workflow_manager = st.session_state.workflow_manager
+project_manager = st.session_state.project_manager  # Получаем проект-менеджер из состояния сессии
 
 # Заголовок приложения
 st.title("🤖 Мультиагентная система разработки")
@@ -154,172 +170,21 @@ with st.sidebar:
     # Обновление моделей для каждого агента
     if "agent_models" in st.session_state:
         orchestrator.set_agent_models(st.session_state.agent_models)
-
-# Отображение потока работы агентов с индикатором прогресса
-render_agent_workflow_progress(orchestrator)
-
-# Чат-интерфейс для взаимодействия с системой
-st.subheader("💬 Диалог с системой")
-
-# Отображение истории чата
-if "messages" in st.session_state:
-    render_chat_history(st.session_state.messages)
-
-# Ввод нового сообщения
-user_input = st.text_area("Опишите задачу или запрос:", height=100)
-
-# Выбор рабочего процесса
-workflow_options = {
-    "standard": "Стандартный процесс",
-    "code_only": "Только код",
-    "review_only": "Только ревью",
-    "docs_only": "Только документация"
-}
-selected_workflow = st.selectbox(
-    "Выберите рабочий процесс:",
-    options=list(workflow_options.keys()),
-    format_func=lambda x: workflow_options.get(x, x)
-)
-
-# Информация о выбранном рабочем процессе
-if selected_workflow:
-    workflow_info = workflow_manager.get_workflow_info(selected_workflow)
-    st.info(f"**{workflow_info.get('name', '')}**: {workflow_info.get('description', '')}")
-
-# Создаем контейнер для отображения прогресса, который будем обновлять
-progress_container = st.empty()
-
-# Отправка запроса
-if st.button("Отправить запрос"):
-    if not user_input:
-        st.error("Пожалуйста, введите описание задачи или запрос!")
-    else:
-        # Добавление сообщения пользователя в историю
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-        
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        
-        # Отображение сообщения пользователя
-        with st.chat_message("user"):
-            st.write(user_input)
-        
-        # Обработка запроса через выбранный рабочий процесс
-        with st.spinner("Обработка запроса..."):
-            # Проверка наличия настроенных API ключей
-            providers_configured = False
-            for provider in st.session_state.providers.values():
-                if provider.is_configured():
-                    providers_configured = True
-                    break
-            
-            if not providers_configured:
-                st.error("Пожалуйста, настройте хотя бы один API ключ в разделе настроек!")
-            else:
-                # Выполнение выбранного рабочего процесса
-                start_time = time.time()
-                
-                # Обновляем поток работы агентов в отдельном потоке
-                import threading
-                
-                def update_progress():
-                    """Функция для обновления прогресса в отдельном потоке"""
-                    while True:
-                        # Получаем текущий статус
-                        current_status = orchestrator.get_current_status()
-                        if current_status["progress"] >= 100:
-                            break
-                            
-                        # Отображаем прогресс в контейнере
-                        with progress_container:
-                            render_agent_workflow_progress(orchestrator)
-                            
-                        time.sleep(0.5)  # Обновляем каждые 0.5 секунд
-                
-                # Запускаем поток обновления прогресса
-                progress_thread = threading.Thread(target=update_progress)
-                progress_thread.daemon = True  # Daemon-поток завершится, когда основной поток завершится
-                progress_thread.start()
-                
-                # Выполняем рабочий процесс
-                results = workflow_manager.execute_workflow(selected_workflow, user_input)
-                total_time = time.time() - start_time
-                
-                # Очищаем контейнер прогресса
-                progress_container.empty()
-                
-                # Отображение результатов для каждого агента
-                st.subheader("🔍 Результаты работы агентов")
-                for agent_name, agent_result in results.items():
-                    if "result" in agent_result:
-                        render_agent_output(
-                            agent_name, 
-                            agent_result["result"], 
-                            agent_result.get("elapsed_time"),
-                            agent_result.get("model"),
-                            agent_result.get("provider")
-                        )
-                
-                # Формирование итогового ответа
-                final_result = orchestrator._combine_results(results)
-                
-                # Добавление ответа в историю сообщений
-                st.session_state.messages.append({
-                    "role": "assistant", 
-                    "content": final_result,
-                    "tokens": sum(r.get("tokens", 0) for r in results.values() if isinstance(r, dict))
-                })
-                
-                # Отображение итогового ответа
-                with st.chat_message("assistant"):
-                    st.write(final_result)
-                
-                # Отображение статистики выполнения
-                st.info(f"Запрос обработан за {total_time:.2f} секунд")
-
-# Отображение информации о системе
-with st.expander("📊 Информация о системе"):
-    st.write("**Версия:** 0.1.0")
-    st.write("**Дата сборки:** Апрель 2025")
-    st.write("**Разработчик:** Команда мультиагентной системы")
     
-    # Отображение статистики использования токенов
-    if "orchestrator" in st.session_state:
-        token_usage = orchestrator.get_token_usage()
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Использовано токенов", token_usage["total"])
-        with col2:
-            st.metric("Стоимость ($)", token_usage["cost"])
-        
-        # Отображение использования по агентам
-        if "per_agent" in token_usage and token_usage["per_agent"]:
-            st.subheader("Использование по агентам")
-            for agent, tokens in token_usage["per_agent"].items():
-                st.write(f"**{agent}:** {tokens} токенов")
-        
-        # Отображение использования по моделям
-        if "per_model" in token_usage and token_usage["per_model"]:
-            st.subheader("Использование по моделям")
-            model_data = []
-            for model, usage in token_usage["per_model"].items():
-                input_tokens = usage.get("input", 0)
-                output_tokens = usage.get("output", 0)
-                model_data.append({
-                    "Модель": model,
-                    "Входные токены": input_tokens,
-                    "Выходные токены": output_tokens,
-                    "Всего": input_tokens + output_tokens
-                })
-            
-            st.dataframe(model_data)
-    
-    # Информация о сервере
-    try:
-        import platform
-        system_info = platform.uname()
-        st.write(f"**Сервер:** {system_info.node}")
-        st.write(f"**ОС:** {system_info.system} {system_info.release}")
-    except:
-        pass
+    # Обновление провайдеров для каждого агента
+    if "agent_providers" in st.session_state:
+        for agent_name, provider_name in st.session_state.agent_providers.items():
+            orchestrator.set_agent_provider(agent_name, provider_name)
+
+# Импорт функции для отрисовки основной страницы
+from ui.pages.main import render_main_page
+
+# Отрисовка основной страницы
+render_main_page(orchestrator, workflow_manager)
+
+# Проверка наличия нового агента в списке и его настройка, если нужно
+if "ProjectManager" in orchestrator.agents:
+    pm_agent = orchestrator.agents["ProjectManager"]
+    if not hasattr(pm_agent, 'project_manager') or pm_agent.project_manager is None:
+        pm_agent.project_manager = project_manager
+        logger.info("ProjectManagerAgent настроен с доступом к SecureProjectManager")

@@ -5,6 +5,9 @@
 import streamlit as st
 import os
 from dotenv import load_dotenv, set_key
+import logging
+
+logger = logging.getLogger("multiagent_system")
 
 def render_settings_page(orchestrator):
     """
@@ -68,24 +71,24 @@ def render_settings_page(orchestrator):
     st.divider()
     
     # Настройка моделей
-    st.header("🧠 Настройка моделей")
+    st.header("🧠 Глобальные настройки моделей")
     
     col1, col2 = st.columns(2)
     
     with col1:
         claude_models = {
             "claude-3-opus-20240229": "Claude 3 Opus (мощная, медленная)",
-            "claude-3-7-sonnet-20250219": "Claude 3 Sonnet (сбалансированная)",
+            "claude-3-sonnet-20240229": "Claude 3 Sonnet (сбалансированная)",
             "claude-3-haiku-20240307": "Claude 3 Haiku (быстрая, экономичная)",
             "claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet (новейшая)"
         }
         
         selected_claude = st.selectbox(
-            "Модель Claude:",
+            "Модель Claude по умолчанию:",
             options=list(claude_models.keys()),
             format_func=lambda x: claude_models.get(x, x),
             index=list(claude_models.keys()).index(
-                os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-opus-20240229")
+                os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-7-sonnet-20250219")
             ) if os.getenv("DEFAULT_CLAUDE_MODEL") in claude_models else 0
         )
         
@@ -110,7 +113,7 @@ def render_settings_page(orchestrator):
         }
         
         selected_gpt = st.selectbox(
-            "Модель GPT:",
+            "Модель GPT по умолчанию:",
             options=list(gpt_models.keys()),
             format_func=lambda x: gpt_models.get(x, x),
             index=list(gpt_models.keys()).index(
@@ -133,19 +136,105 @@ def render_settings_page(orchestrator):
     
     st.divider()
     
+    # НОВЫЙ РАЗДЕЛ: Настройка моделей для отдельных агентов
+    st.header("🤖 Настройка моделей для агентов")
+    
+    st.write("Здесь вы можете выбрать специфические модели для каждого агента. Если модель не выбрана, используется модель по умолчанию.")
+    
+    # Получаем список всех доступных моделей
+    all_models = {}
+    all_models.update(claude_models)
+    all_models.update(gpt_models)
+    
+    # Получаем текущие настройки моделей агентов
+    agent_models = st.session_state.get("agent_models", {})
+    agent_providers = st.session_state.get("agent_providers", {})
+    
+    # Создаем словарь всех агентов
+    agents = {
+        "Planner": "📝 Планировщик",
+        "Architect": "🏗️ Архитектор",
+        "Coder": "💻 Программист",
+        "Reviewer": "🔍 Ревьюер",
+        "Tester": "🧪 Тестировщик",
+        "Documenter": "📚 Документатор",
+        "ProjectManager": "📁 Менеджер проектов"
+    }
+    
+    # Создаем вкладки для каждого агента
+    agent_tabs = st.tabs(list(agents.values()))
+    
+    for i, (agent_name, agent_display) in enumerate(agents.items()):
+        with agent_tabs[i]:
+            # Выбор провайдера для агента
+            provider_options = {
+                "claude": "Anthropic Claude",
+                "gpt": "OpenAI GPT"
+            }
+            
+            current_provider = agent_providers.get(agent_name, "claude")  # По умолчанию используем Claude
+            
+            selected_provider = st.selectbox(
+                "Провайдер:",
+                options=list(provider_options.keys()),
+                format_func=lambda x: provider_options.get(x, x),
+                index=list(provider_options.keys()).index(current_provider) if current_provider in provider_options else 0,
+                key=f"provider_{agent_name}"
+            )
+            
+            # В зависимости от выбранного провайдера, показываем соответствующие модели
+            if selected_provider == "claude":
+                model_options = claude_models
+                default_model = os.getenv("DEFAULT_CLAUDE_MODEL", "claude-3-7-sonnet-20250219")
+            else:
+                model_options = gpt_models
+                default_model = os.getenv("DEFAULT_GPT_MODEL", "gpt-4-turbo")
+            
+            # Получаем текущую модель для агента или используем модель по умолчанию
+            current_model = agent_models.get(agent_name, default_model)
+            
+            selected_model = st.selectbox(
+                "Модель:",
+                options=list(model_options.keys()),
+                format_func=lambda x: model_options.get(x, x),
+                index=list(model_options.keys()).index(current_model) if current_model in model_options else 0,
+                key=f"model_{agent_name}"
+            )
+            
+            # Отображаем дополнительную информацию о выбранной модели
+            st.info(f"**Выбрано:** {provider_options[selected_provider]}, модель {model_options[selected_model]}")
+            
+            # Сохраняем выбор пользователя в session_state
+            if "agent_models" not in st.session_state:
+                st.session_state.agent_models = {}
+            if "agent_providers" not in st.session_state:
+                st.session_state.agent_providers = {}
+            
+            st.session_state.agent_models[agent_name] = selected_model
+            st.session_state.agent_providers[agent_name] = selected_provider
+    
+    # Кнопка для сохранения всех настроек моделей агентов
+    if st.button("Сохранить настройки моделей для всех агентов"):
+        try:
+            # Обновляем модели в оркестраторе
+            orchestrator.set_agent_models(st.session_state.agent_models)
+            
+            # Обновляем провайдеров для агентов
+            for agent_name, provider_name in st.session_state.agent_providers.items():
+                orchestrator.set_agent_provider(agent_name, provider_name)
+            
+            st.success("✅ Настройки моделей для всех агентов успешно сохранены!")
+            logger.info("Настройки моделей для агентов обновлены пользователем")
+        except Exception as e:
+            st.error(f"❌ Ошибка при сохранении настроек моделей: {str(e)}")
+            logger.error(f"Ошибка при сохранении настроек моделей агентов: {str(e)}")
+    
+    st.divider()
+    
     # Настройка агентов
     st.header("🤖 Настройка агентов")
     
     st.write("Выберите агентов для использования в системе:")
-    
-    agents = {
-        "Planner": "📝 Планировщик - анализирует задачу и создает план",
-        "Architect": "🏗️ Архитектор - проектирует структуру решения",
-        "Coder": "💻 Программист - пишет код",
-        "Reviewer": "🔍 Ревьюер - проверяет код на ошибки",
-        "Tester": "🧪 Тестировщик - создает тесты",
-        "Documenter": "📚 Документатор - пишет документацию"
-    }
     
     # Получение текущих настроек
     active_agents = st.session_state.get("active_agents", {})
@@ -154,7 +243,7 @@ def render_settings_page(orchestrator):
     col1, col2 = st.columns(2)
     
     for i, (agent_key, agent_desc) in enumerate(agents.items()):
-        with col1 if i < 3 else col2:
+        with col1 if i < 4 else col2:
             active_agents[agent_key] = st.checkbox(
                 agent_desc, 
                 value=active_agents.get(agent_key, True),
@@ -227,6 +316,38 @@ def render_settings_page(orchestrator):
                 st.info("⚠️ Изменения вступят в силу после перезапуска приложения")
             except Exception as e:
                 st.error(f"❌ Ошибка при сохранении настроек: {str(e)}")
+    
+    with st.expander("Настройки проект-менеджера"):
+        # Проверяем, инициализирован ли проект-менеджер в оркестраторе
+        if hasattr(orchestrator, 'project_manager'):
+            projects_root = orchestrator.project_manager.projects_root
+            st.write(f"**Корневая директория проектов:** {projects_root}")
+            
+            # Позволяем пользователю изменить корневую директорию
+            new_projects_root = st.text_input(
+                "Новая корневая директория проектов:",
+                value=projects_root
+            )
+            
+            if st.button("Изменить директорию проектов"):
+                try:
+                    # Сохраняем новый путь в переменные окружения
+                    set_key(".env", "PROJECTS_ROOT", new_projects_root)
+                    st.success(f"✅ Корневая директория проектов изменена на: {new_projects_root}")
+                    st.info("⚠️ Изменения вступят в силу после перезапуска приложения")
+                except Exception as e:
+                    st.error(f"❌ Ошибка при изменении директории: {str(e)}")
+            
+            # Отображаем список существующих проектов
+            existing_projects = orchestrator.project_manager.list_projects()
+            if existing_projects:
+                st.write("**Существующие проекты:**")
+                for project in existing_projects:
+                    st.write(f"- {project}")
+            else:
+                st.info("Нет существующих проектов.")
+        else:
+            st.warning("Проект-менеджер не инициализирован.")
     
     with st.expander("Очистка данных"):
         st.warning("⚠️ Эти действия нельзя отменить!")

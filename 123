@@ -1,0 +1,34 @@
+
+## Component Descriptions
+
+### Core Components
+
+- **Orchestrator**: Central coordinator that manages agent execution, context, and workflow
+- **WorkflowManager**: Defines and executes different workflows based on user requirements
+- **ContextStorage**: Persists context between interactions and agent executions
+- **ContextOptimizer**: Optimizes context to fit within token limits
+
+### Agent Types
+
+- **PlannerAgent**: Creates a high-level plan for implementing the user's request
+- **ArchitectAgent**: Designs the software architecture and component structure
+- **CoderAgent**: Implements the code based on the architecture and plan
+- **ReviewerAgent**: Reviews code for quality, security, and best practices
+- **TesterAgent**: Creates test cases and verifies implementation
+- **DocumenterAgent**: Generates documentation for the code and implementation
+
+### Provider Integrations
+
+- **AnthropicProvider**: Integration with Anthropic's Claude models
+- **OpenAIProvider**: Integration with OpenAI's GPT models
+
+### UI Components
+
+The Streamlit UI provides:
+- Agent configuration
+- Model selection
+- Workflow selection
+- Chat interface
+- Progress tracking
+- Agent output visualization
+- Token usage statistics
